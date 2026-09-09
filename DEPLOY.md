@@ -1,60 +1,98 @@
-# Deploying AFRFMS to Render
+# Deploying AFRFMS to Render + Neon (no credit card required)
 
-This repo includes a `render.yaml` blueprint that provisions all three pieces
-(Postgres database, backend API, static frontend) in one step.
+This setup avoids Render's Blueprint card prompt by creating each resource
+individually, and uses Neon instead of Render's Postgres (Neon's free tier
+is permanent and doesn't expire after 30 days like Render's does).
 
-## 1. Push to GitHub
+## 1. Create your database on Neon
+
+1. Go to [neon.tech](https://neon.tech) and sign up (no card required).
+2. Create a new project (any name, e.g. `afrfms`).
+3. On the project dashboard, copy the **connection string** — it looks like
+   `postgresql://user:password@ep-xxxx.region.aws.neon.tech/neondb?sslmode=require`.
+   Keep this handy for step 3 below.
+
+## 2. Push this code to GitHub
+
+If you haven't already:
 
 ```bash
 cd afrfms-final
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
 git remote add origin https://github.com/<your-username>/<your-repo>.git
 git push -u origin main
 ```
 
-(Create the empty repo on GitHub first at github.com/new — don't
-initialize it with a README, or the push above will conflict.)
+If the remote already exists from a previous push, just run:
 
-## 2. Deploy on Render
+```bash
+git push origin main
+```
 
-1. Go to the Render dashboard → **New** → **Blueprint**.
-2. Connect your GitHub account and select this repo. Render will read
-   `render.yaml` and show you the three resources it's about to create:
-   `afrfms-db` (Postgres), `afrfms-backend` (API), `afrfms-web` (frontend).
-3. Click **Apply**. First deploy takes a few minutes.
-4. If Render had to rename either web service (because the exact name was
-   taken), open `render.yaml`'s two placeholder URLs
-   (`FRONTEND_URL` on the backend, `VITE_API_URL` on the frontend) and
-   update them to match the real `.onrender.com` URLs Render assigned, then
-   redeploy those two services.
+## 3. Deploy the backend on Render
 
-## 3. Set up the database schema
+1. Render dashboard → **New → Web Service** (not Blueprint).
+2. Connect your GitHub repo, select it.
+3. Settings:
+   - **Root Directory:** `backend`
+   - **Build Command:** `npm install --include=dev && npm run build`
+   - **Start Command:** `npm start`
+   - **Instance Type:** Free
+4. Environment variables:
+   - `DB_DRIVER` = `postgres`
+   - `DATABASE_URL` = the Neon connection string from step 1
+   - `JWT_SECRET` = any long random string (e.g. generate with `openssl rand -hex 32`)
+   - `JWT_EXPIRES_IN` = `8h`
+   - `FRONTEND_URL` = leave blank for now, you'll set this in step 5
+5. Click **Create Web Service**. Note the URL Render assigns, e.g.
+   `https://afrfms-backend.onrender.com`.
 
-Once `afrfms-backend` finishes deploying, open its **Shell** tab in the
-Render dashboard and run:
+## 4. Deploy the frontend on Render
+
+1. Render dashboard → **New → Static Site**.
+2. Connect the same repo.
+3. Settings:
+   - **Root Directory:** `web`
+   - **Build Command:** `npm install && npm run build`
+   - **Publish Directory:** `dist`
+4. Environment variable:
+   - `VITE_API_URL` = the backend URL from step 3 (e.g. `https://afrfms-backend.onrender.com`)
+5. Before deploying, open the **Redirects/Rewrites** tab and add:
+   - Source: `/*`
+   - Destination: `/index.html`
+   - Action: `Rewrite`
+
+   (Without this, refreshing any page other than `/` will 404 — this app
+   uses client-side routing.)
+6. Click **Create Static Site**. Note its URL, e.g. `https://afrfms-web.onrender.com`.
+
+## 5. Connect the two
+
+Go back to the **afrfms-backend** service → **Environment** → set
+`FRONTEND_URL` to the frontend URL from step 4 → save (this triggers a
+redeploy).
+
+## 6. Set up the database schema
+
+Once `afrfms-backend` shows **Live**, open its **Shell** tab and run:
 
 ```bash
 npm run migrate
 npm run seed
 ```
 
-`seed` prints demo login credentials for all 11 roles. Log in, then either
-create real accounts through the Users admin page or change the demo
-passwords before putting this in front of real crews.
+`seed` prints demo login credentials for all 11 roles.
 
-## 4. Verify
+## 7. Verify
 
 - Backend health check: `https://<your-backend>.onrender.com/health`
-- Frontend: `https://<your-web>.onrender.com`
+- Frontend: open `https://<your-web>.onrender.com` and log in with a demo account.
 
 ## Notes
 
-- The `starter` plan on the backend keeps it always-on (no cold-start
-  sleep). Remove `plan: starter` from `render.yaml` before deploying if you
-  want to test on the free tier first — just know it sleeps after 15 min
-  idle and the free Postgres database expires after 30 days.
-- CORS on the backend is restricted to `FRONTEND_URL`. If you add a custom
-  domain later, add it there too (comma-separated for multiple origins).
+- Free Render web services sleep after 15 min idle (~30-60s cold start on
+  next request). The static frontend never sleeps.
+- Neon's free database also pauses when idle but wakes automatically on
+  the next query — no data loss, unlike Render's which expires outright.
+- When you're ready for always-on with no sleep, switch the backend's
+  instance type to Starter (~$7/mo) in Render's dashboard.
+
