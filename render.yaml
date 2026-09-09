@@ -1,6 +1,9 @@
 databases:
+  # Free plan: 256MB storage, expires 30 days after creation (Render will
+  # email you before that). Change to "basic-256mb" (~$6-7/mo) for a
+  # database that doesn't expire, once you're ready to go live for real.
   - name: afrfms-db
-    plan: basic-256mb
+    plan: free
     databaseName: afrfms
     user: afrfms
 
@@ -9,7 +12,10 @@ services:
     name: afrfms-backend
     runtime: node
     rootDir: backend
-    plan: starter
+    # Free plan: no card required, but sleeps after 15 min idle and takes
+    # ~30-60s to wake on the next request. Change to "starter" (~$7/mo)
+    # for an always-on backend once you're ready to go live for real.
+    plan: free
     buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
